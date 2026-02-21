@@ -39,16 +39,16 @@ class SyncActivityService
             $page = 1;
             $perPage = 20;
 
-            while ($page <= 10) {
+            while (true) {
 
                 $params = [
                     'per_page' => $perPage,
                     'page' => $page
                 ];
 
-                // if ($after) {
-                //     $params['after'] = $after;
-                // }
+                if ($after) {
+                    $params['after'] = $after;
+                }
 
                 $response = Http::withToken($account->access_token)
                     ->timeout(60)
@@ -154,11 +154,12 @@ class SyncActivityService
                 $page++;
             }
 
-            if ($latestEpoch) {
-                $account->update([
-                    'strava_last_activity_epoch' => $latestEpoch,
-                    'last_activity_sync_at' => now()
-                ]);
+            if (isset($latestEpoch)) {
+
+                $account->strava_last_activity_epoch = $latestEpoch;
+                $account->last_activity_sync_at = now();
+
+                $account->save();
             }
 
             return $result;
