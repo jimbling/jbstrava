@@ -1,6 +1,9 @@
 <x-app-layout>
     <div class="py-10 bg-gray-50 min-h-screen">
 
+        @if (session('debug'))
+            <pre>{{ session('debug') }}</pre>
+        @endif
         <div class="max-w-7xl mx-auto px-6">
 
 

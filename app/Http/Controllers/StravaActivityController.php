@@ -20,11 +20,12 @@ class StravaActivityController extends Controller
 
     public function sync(SyncActivityService $service)
     {
+        $result = $service->syncLatestActivities(auth()->id());
 
-
-        $service->syncLatestActivities(auth()->id());
-
-        return back()->with('success', 'Activity synced successfully');
+        return redirect()->back()->with([
+            'success' => 'Sync selesai',
+            'debug' => json_encode($result)
+        ]);
     }
 
     public function show($id)
