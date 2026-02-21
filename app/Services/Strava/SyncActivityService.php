@@ -13,26 +13,33 @@ class SyncActivityService
     {
         $account = StravaAccount::where('user_id', $userId)->first();
 
-        if (!$account) {
+        if (!$account || !$account->access_token) {
             return;
         }
 
         try {
 
-            $lastSyncedActivityId = $account->strava_last_activity_id;
+            $after = $account->strava_last_activity_epoch;
 
             $page = 1;
-            $perPage = 20; // lebih kecil untuk efficiency
+            $perPage = 20;
 
-            $stopSync = false;
+            $latestActivityEpoch = $after;
 
-            while (!$stopSync) {
+            while ($page <= 10) {
+
+                $query = [
+                    'per_page' => $perPage,
+                    'page' => $page
+                ];
+
+                if ($after) {
+                    $query['after'] = $after;
+                }
 
                 $response = Http::withToken($account->access_token)
-                    ->get('https://www.strava.com/api/v3/athlete/activities', [
-                        'per_page' => $perPage,
-                        'page' => $page
-                    ]);
+                    ->timeout(30)
+                    ->get('https://www.strava.com/api/v3/athlete/activities', $query);
 
                 if (!$response->successful()) {
                     break;
@@ -40,24 +47,14 @@ class SyncActivityService
 
                 $activities = $response->json();
 
-                if (!is_array($activities) || empty($activities)) {
+                if (empty($activities)) {
                     break;
                 }
 
                 foreach ($activities as $activity) {
 
-                    // Jika sudah ketemu activity terakhir sync → stop semua sync
-                    if (
-                        $lastSyncedActivityId &&
-                        $activity['id'] == $lastSyncedActivityId
-                    ) {
-
-                        $stopSync = true;
-                        break;
-                    }
-
-                    // Fetch detail activity
                     $detailResponse = Http::withToken($account->access_token)
+                        ->timeout(30)
                         ->get("https://www.strava.com/api/v3/activities/{$activity['id']}");
 
                     if (!$detailResponse->successful()) {
@@ -94,28 +91,29 @@ class SyncActivityService
                         ]
                     );
 
-                    // Update tracker activity terbaru
-                    if (!$account->strava_last_activity_id) {
-                        $account->strava_last_activity_id = $activity['id'];
-                        $account->save();
+                    $activityEpoch = strtotime($detail['start_date']);
+
+                    if (!$latestActivityEpoch || $activityEpoch > $latestActivityEpoch) {
+                        $latestActivityEpoch = $activityEpoch;
                     }
                 }
 
-                if ($stopSync) {
+                if (count($activities) < $perPage) {
                     break;
                 }
 
                 $page++;
+            }
 
-                // Safety limit pagination
-                if ($page > 10) {
-                    break;
-                }
+            // Update cursor sync hanya sekali di akhir
+            if ($latestActivityEpoch) {
+                $account->strava_last_activity_epoch = $latestActivityEpoch;
             }
 
             $account->last_activity_sync_at = now();
             $account->save();
         } catch (\Exception $e) {
+
             Log::error('Error syncing activities', [
                 'user_id' => $userId,
                 'error' => $e->getMessage()
