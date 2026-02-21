@@ -34,7 +34,6 @@ class SyncActivityService
         try {
 
             $after = $account->strava_last_activity_epoch;
-
             $page = 1;
             $perPage = 20;
 
@@ -42,13 +41,22 @@ class SyncActivityService
 
             while ($page <= 10) {
 
+                $params = [
+                    'per_page' => $perPage,
+                    'page' => $page
+                ];
+
+                // ⭐ IMPORTANT: only send after if exists
+                if ($after) {
+                    $params['after'] = $after;
+                }
+
                 $response = Http::withToken($account->access_token)
                     ->timeout(20)
-                    ->get('https://www.strava.com/api/v3/athlete/activities', [
-                        'per_page' => $perPage,
-                        'page' => $page,
-                        'after' => $after
-                    ]);
+                    ->get(
+                        'https://www.strava.com/api/v3/athlete/activities',
+                        $params
+                    );
 
                 if (!$response->successful()) {
                     break;
@@ -76,9 +84,9 @@ class SyncActivityService
                         ->where('strava_activity_id', $activity['id'])
                         ->first();
 
-                    // =========================
-                    // UPDATE EXISTING RECORD
-                    // =========================
+                    // ========================
+                    // UPDATE EXISTING
+                    // ========================
                     if ($existing) {
 
                         if (($existing->raw_hash ?? null) === $rawHash) {
@@ -114,9 +122,9 @@ class SyncActivityService
                         continue;
                     }
 
-                    // =========================
-                    // INSERT NEW RECORD
-                    // =========================
+                    // ========================
+                    // INSERT NEW
+                    // ========================
                     Activity::create([
                         'user_id' => $userId,
                         'strava_activity_id' => $activity['id'],
