@@ -2,10 +2,12 @@
 
 namespace App\Http\Controllers;
 
+
 use App\Http\Controllers\Controller;
+use App\Jobs\SyncStravaActivityJob;
 use App\Models\Activity;
-use App\Services\Strava\SyncActivityService;
-use Illuminate\Http\Request;
+
+
 
 class StravaActivityController extends Controller
 {
@@ -15,16 +17,18 @@ class StravaActivityController extends Controller
             ->orderByDesc('start_date')
             ->paginate(12);
 
-        return view('strava.activity', compact('activities'));
+        $lastSync = auth()->user()
+            ->stravaAccount?->last_activity_sync_at;
+
+        return view('strava.activity', compact('activities', 'lastSync'));
     }
 
-    public function sync(SyncActivityService $service)
+    public function sync()
     {
-        $result = $service->syncLatestActivities(auth()->id());
+        SyncStravaActivityJob::dispatch(auth()->id());
 
-        return redirect()->back()->with([
-            'success' => 'Sync selesai',
-            'debug' => json_encode($result)
+        return response()->json([
+            'status' => 'queued'
         ]);
     }
 

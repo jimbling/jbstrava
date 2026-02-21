@@ -47,7 +47,7 @@ class User extends Authenticatable
     }
 
     public function stravaAccount()
-{
-    return $this->hasOne(StravaAccount::class);
-}
+    {
+        return $this->hasOne(StravaAccount::class);
+    }
 }
