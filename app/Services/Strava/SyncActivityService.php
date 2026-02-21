@@ -33,7 +33,6 @@ class SyncActivityService
 
         try {
 
-
             $latestEpoch = $account->strava_last_activity_epoch;
             $page = 1;
             $perPage = 20;
@@ -85,8 +84,30 @@ class SyncActivityService
                             $latestEpoch = $activityEpoch;
                         }
 
-                        // Use serialize instead of json encode
-                        $rawHash = md5(serialize($activity));
+                        /*
+                        --------------------------------
+                        FETCH DETAIL ACTIVITY
+                        --------------------------------
+                        */
+                        $detailResponse = Http::withToken($account->access_token)
+                            ->timeout(60)
+                            ->get(
+                                "https://www.strava.com/api/v3/activities/{$activity['id']}"
+                            );
+
+                        if (!$detailResponse->successful()) {
+                            continue;
+                        }
+
+                        $detail = $detailResponse->json();
+
+                        /*
+                        --------------------------------
+                        STORAGE ANALYTICS DATA
+                        --------------------------------
+                        */
+
+                        $rawHash = md5(serialize($detail));
 
                         $existing = Activity::where('user_id', $userId)
                             ->where('strava_activity_id', $activity['id'])
@@ -96,24 +117,24 @@ class SyncActivityService
                             'user_id' => $userId,
                             'strava_activity_id' => $activity['id'],
 
-                            'name' => $activity['name'] ?? null,
-                            'sport_type' => $activity['sport_type'] ?? ($activity['type'] ?? null),
+                            'name' => $detail['name'] ?? null,
+                            'sport_type' => $detail['sport_type'] ?? ($detail['type'] ?? null),
 
-                            'distance' => $activity['distance'] ?? null,
-                            'moving_time' => $activity['moving_time'] ?? null,
-                            'elapsed_time' => $activity['elapsed_time'] ?? null,
-                            'total_elevation_gain' => $activity['total_elevation_gain'] ?? null,
+                            'distance' => $detail['distance'] ?? null,
+                            'moving_time' => $detail['moving_time'] ?? null,
+                            'elapsed_time' => $detail['elapsed_time'] ?? null,
+                            'total_elevation_gain' => $detail['total_elevation_gain'] ?? null,
 
-                            'average_speed' => $activity['average_speed'] ?? null,
-                            'max_speed' => $activity['max_speed'] ?? null,
-                            'average_cadence' => $activity['average_cadence'] ?? null,
+                            'average_speed' => $detail['average_speed'] ?? null,
+                            'max_speed' => $detail['max_speed'] ?? null,
+                            'average_cadence' => $detail['average_cadence'] ?? null,
 
-                            'gear_id' => $activity['gear_id'] ?? null,
-                            'polyline' => $activity['map']['summary_polyline'] ?? null,
+                            'gear_id' => $detail['gear']['id'] ?? ($detail['gear_id'] ?? null),
+                            'polyline' => $detail['map']['summary_polyline'] ?? null,
 
-                            'start_date' => $activity['start_date'] ?? null,
+                            'start_date' => $detail['start_date'] ?? null,
 
-                            'raw_data' => $activity,
+                            'raw_data' => $detail,
                             'raw_hash' => $rawHash,
 
                             'last_synced_at' => now()
@@ -126,12 +147,10 @@ class SyncActivityService
                             }
 
                             $existing->update($data);
-
                             $result['updated']++;
                         } else {
 
                             Activity::create($data);
-
                             $result['inserted']++;
                         }
                     } catch (\Exception $e) {
@@ -151,14 +170,18 @@ class SyncActivityService
                 }
 
                 $page++;
+
+                if ($page > 10) {
+                    break;
+                }
             }
 
             if (isset($latestEpoch)) {
 
-                $account->strava_last_activity_epoch = $latestEpoch;
-                $account->last_activity_sync_at = now();
-
-                $account->save();
+                $account->update([
+                    'strava_last_activity_epoch' => $latestEpoch,
+                    'last_activity_sync_at' => now()
+                ]);
             }
 
             return $result;
