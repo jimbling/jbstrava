@@ -9,17 +9,6 @@ use Illuminate\Support\Facades\Log;
 
 class SyncActivityService
 {
-    <?php
-
-namespace App\Services\Strava;
-
-use App\Models\Activity;
-use App\Models\StravaAccount;
-use Illuminate\Support\Facades\Http;
-use Illuminate\Support\Facades\Log;
-
-class SyncActivityService
-{
     public function syncLatestActivities($userId): array
     {
         $account = StravaAccount::where('user_id', $userId)->first();
@@ -173,7 +162,6 @@ class SyncActivityService
             }
 
             return $result;
-
         } catch (\Exception $e) {
 
             Log::error('Error syncing activities', [
@@ -190,5 +178,4 @@ class SyncActivityService
             ];
         }
     }
-}
 }
