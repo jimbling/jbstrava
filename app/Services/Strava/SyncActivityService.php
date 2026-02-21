@@ -46,9 +46,9 @@ class SyncActivityService
                     'page' => $page
                 ];
 
-                if ($after) {
-                    $params['after'] = $after;
-                }
+                // if ($after) {
+                //     $params['after'] = $after;
+                // }
 
                 $response = Http::withToken($account->access_token)
                     ->timeout(60)
