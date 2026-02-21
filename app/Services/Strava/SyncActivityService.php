@@ -13,17 +13,20 @@ class SyncActivityService
     {
         $account = StravaAccount::where('user_id', $userId)->first();
 
-        if (!$account || !$account->access_token) {
+        if (!$account) {
             return;
         }
 
         try {
 
-            $lastSyncTime = $account->last_activity_sync_at;
-            $perPage = 20;
-            $page = 1;
+            $lastSyncedActivityId = $account->strava_last_activity_id;
 
-            while (true) {
+            $page = 1;
+            $perPage = 20; // lebih kecil untuk efficiency
+
+            $stopSync = false;
+
+            while (!$stopSync) {
 
                 $response = Http::withToken($account->access_token)
                     ->get('https://www.strava.com/api/v3/athlete/activities', [
@@ -31,76 +34,83 @@ class SyncActivityService
                         'page' => $page
                     ]);
 
-                if (!$response->successful()) break;
+                if (!$response->successful()) {
+                    break;
+                }
 
                 $activities = $response->json();
 
-                if (empty($activities)) break;
-
-                $stopSync = false;
+                if (!is_array($activities) || empty($activities)) {
+                    break;
+                }
 
                 foreach ($activities as $activity) {
 
-                    $remoteUpdatedAt = $activity['updated_at'] ?? null;
+                    // Jika sudah ketemu activity terakhir sync → stop semua sync
+                    if (
+                        $lastSyncedActivityId &&
+                        $activity['id'] == $lastSyncedActivityId
+                    ) {
 
-                    // Layer 1 checkpoint stop
-                    if ($lastSyncTime && $remoteUpdatedAt <= $lastSyncTime->toISOString()) {
                         $stopSync = true;
                         break;
                     }
 
-                    $localActivity = Activity::where('user_id', $userId)
-                        ->where('strava_activity_id', $activity['id'])
-                        ->first();
+                    // Fetch detail activity
+                    $detailResponse = Http::withToken($account->access_token)
+                        ->get("https://www.strava.com/api/v3/activities/{$activity['id']}");
 
-                    $needDetailFetch = false;
-
-                    if (!$localActivity) {
-                        $needDetailFetch = true;
-                    } else {
-                        if (
-                            $remoteUpdatedAt &&
-                            $localActivity->updated_at < $remoteUpdatedAt
-                        ) {
-                            $needDetailFetch = true;
-                        }
+                    if (!$detailResponse->successful()) {
+                        continue;
                     }
 
-                    if ($needDetailFetch) {
+                    $detail = $detailResponse->json();
 
-                        $detailResponse = Http::withToken($account->access_token)
-                            ->get("https://www.strava.com/api/v3/activities/{$activity['id']}");
+                    Activity::updateOrCreate(
+                        [
+                            'user_id' => $userId,
+                            'strava_activity_id' => $activity['id']
+                        ],
+                        [
+                            'name' => $detail['name'] ?? null,
+                            'sport_type' => $detail['sport_type'] ?? ($detail['type'] ?? null),
 
-                        if ($detailResponse->successful()) {
+                            'distance' => $detail['distance'] ?? null,
+                            'moving_time' => $detail['moving_time'] ?? null,
+                            'elapsed_time' => $detail['elapsed_time'] ?? null,
+                            'total_elevation_gain' => $detail['total_elevation_gain'] ?? null,
 
-                            $detail = $detailResponse->json();
+                            'average_speed' => $detail['average_speed'] ?? null,
+                            'max_speed' => $detail['max_speed'] ?? null,
+                            'average_cadence' => $detail['average_cadence'] ?? null,
 
-                            Activity::updateOrCreate(
-                                [
-                                    'user_id' => $userId,
-                                    'strava_activity_id' => $activity['id']
-                                ],
-                                [
-                                    'name' => $detail['name'] ?? null,
-                                    'sport_type' => $detail['sport_type'] ?? null,
-                                    'distance' => $detail['distance'] ?? null,
-                                    'moving_time' => $detail['moving_time'] ?? null,
-                                    'elapsed_time' => $detail['elapsed_time'] ?? null,
-                                    'total_elevation_gain' => $detail['total_elevation_gain'] ?? null,
-                                    'polyline' => $detail['map']['summary_polyline'] ?? null,
-                                    'raw_data' => $detail,
-                                    'last_synced_at' => now()
-                                ]
-                            );
-                        }
+                            'gear_id' => $detail['gear_id'] ?? null,
+                            'polyline' => $detail['map']['summary_polyline'] ?? null,
+                            'start_date' => $detail['start_date'] ?? null,
+
+                            'raw_data' => $detail,
+
+                            'last_synced_at' => now()
+                        ]
+                    );
+
+                    // Update tracker activity terbaru
+                    if (!$account->strava_last_activity_id) {
+                        $account->strava_last_activity_id = $activity['id'];
+                        $account->save();
                     }
                 }
 
-                if ($stopSync) break;
+                if ($stopSync) {
+                    break;
+                }
 
                 $page++;
 
-                if ($page > 10) break; // safety breaker
+                // Safety limit pagination
+                if ($page > 10) {
+                    break;
+                }
             }
 
             $account->last_activity_sync_at = now();
