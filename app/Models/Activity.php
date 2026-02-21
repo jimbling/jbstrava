@@ -25,7 +25,9 @@ class Activity extends Model
         'last_synced_at',
         'achievement_flag',
         'is_personal_record',
-        'trend_score'
+        'trend_score',
+        'strava_last_activity_id',
+        'last_activity_sync_at'
     ];
 
     protected $casts = [
@@ -45,5 +47,59 @@ class Activity extends Model
     public function user()
     {
         return $this->belongsTo(User::class);
+    }
+
+    // App\Models\Activity.php
+
+
+
+    // Accessor untuk mengambil data gear dari raw_data
+    public function getGearNameAttribute()
+    {
+        return $this->raw_data['gear']['name'] ?? null;
+    }
+
+
+
+    // Accessor untuk best efforts
+    public function getBestEffortsAttribute()
+    {
+        return $this->raw_data['best_efforts'] ?? [];
+    }
+
+    // Accessor untuk splits metric
+    public function getSplitsMetricAttribute()
+    {
+        return $this->raw_data['splits_metric'] ?? [];
+    }
+
+    // Accessor untuk start_latlng
+    public function getStartLatlngAttribute()
+    {
+        return $this->raw_data['start_latlng'] ?? null;
+    }
+
+    // Accessor untuk end_latlng
+    public function getEndLatlngAttribute()
+    {
+        return $this->raw_data['end_latlng'] ?? null;
+    }
+
+    // Accessor untuk kudos_count
+    public function getKudosCountAttribute()
+    {
+        return $this->raw_data['kudos_count'] ?? 0;
+    }
+
+    // Accessor untuk achievement_count
+    public function getAchievementCountAttribute()
+    {
+        return $this->raw_data['achievement_count'] ?? 0;
+    }
+
+    // Accessor untuk calories
+    public function getCaloriesAttribute()
+    {
+        return $this->raw_data['calories'] ?? 0;
     }
 }
