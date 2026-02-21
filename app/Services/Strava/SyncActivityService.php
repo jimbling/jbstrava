@@ -33,7 +33,7 @@ class SyncActivityService
 
         try {
 
-            $after = $account->strava_last_activity_epoch;
+            $after = null;
             $latestEpoch = $after;
 
             $page = 1;
