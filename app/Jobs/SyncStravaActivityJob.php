@@ -10,18 +10,14 @@ class SyncStravaActivityJob implements ShouldQueue
 {
     use Queueable;
 
-    /**
-     * Create a new job instance.
-     */
-    public function __construct()
+    protected int $userId;
+
+    public function __construct(int $userId)
     {
-        //
+        $this->userId = $userId;
     }
 
-    /**
-     * Execute the job.
-     */
-    public function handle()
+    public function handle(): void
     {
         app(SyncActivityService::class)
             ->syncLatestActivities($this->userId);
