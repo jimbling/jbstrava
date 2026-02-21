@@ -21,6 +21,26 @@ class SyncActivityService
 
             $after = $account->strava_last_activity_epoch;
 
+            $response = Http::withToken($account->access_token)
+                ->timeout(10)
+                ->get('https://www.strava.com/api/v3/athlete/activities', [
+                    'per_page' => 1,
+                    'page' => 1,
+                    'after' => $after
+                ]);
+
+            if (!$response->successful()) {
+                return;
+            }
+
+            $activities = $response->json();
+
+            // ⭐ Tidak ada data baru → langsung exit
+            if (empty($activities)) {
+                return;
+            }
+
+            // Jika ada data baru → lanjut sync full page kecil
             $page = 1;
             $perPage = 20;
 
@@ -28,18 +48,13 @@ class SyncActivityService
 
             while ($page <= 10) {
 
-                $query = [
-                    'per_page' => $perPage,
-                    'page' => $page
-                ];
-
-                if ($after) {
-                    $query['after'] = $after;
-                }
-
                 $response = Http::withToken($account->access_token)
-                    ->timeout(30)
-                    ->get('https://www.strava.com/api/v3/athlete/activities', $query);
+                    ->timeout(20)
+                    ->get('https://www.strava.com/api/v3/athlete/activities', [
+                        'per_page' => $perPage,
+                        'page' => $page,
+                        'after' => $after
+                    ]);
 
                 if (!$response->successful()) {
                     break;
@@ -53,15 +68,7 @@ class SyncActivityService
 
                 foreach ($activities as $activity) {
 
-                    $detailResponse = Http::withToken($account->access_token)
-                        ->timeout(30)
-                        ->get("https://www.strava.com/api/v3/activities/{$activity['id']}");
-
-                    if (!$detailResponse->successful()) {
-                        continue;
-                    }
-
-                    $detail = $detailResponse->json();
+                    $detail = $activity; // ⭐ gunakan list endpoint langsung
 
                     Activity::updateOrCreate(
                         [
@@ -86,7 +93,6 @@ class SyncActivityService
                             'start_date' => $detail['start_date'] ?? null,
 
                             'raw_data' => $detail,
-
                             'last_synced_at' => now()
                         ]
                     );
@@ -105,7 +111,6 @@ class SyncActivityService
                 $page++;
             }
 
-            // Update cursor sync hanya sekali di akhir
             if ($latestActivityEpoch) {
                 $account->strava_last_activity_epoch = $latestActivityEpoch;
             }
