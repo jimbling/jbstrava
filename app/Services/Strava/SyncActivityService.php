@@ -21,30 +21,10 @@ class SyncActivityService
 
             $after = $account->strava_last_activity_epoch;
 
-            $response = Http::withToken($account->access_token)
-                ->timeout(10)
-                ->get('https://www.strava.com/api/v3/athlete/activities', [
-                    'per_page' => 1,
-                    'page' => 1,
-                    'after' => $after
-                ]);
-
-            if (!$response->successful()) {
-                return;
-            }
-
-            $activities = $response->json();
-
-            // ⭐ Tidak ada data baru → langsung exit
-            if (empty($activities)) {
-                return;
-            }
-
-            // Jika ada data baru → lanjut sync full page kecil
             $page = 1;
             $perPage = 20;
 
-            $latestActivityEpoch = $after;
+            $latestEpoch = $after;
 
             while ($page <= 10) {
 
@@ -68,40 +48,80 @@ class SyncActivityService
 
                 foreach ($activities as $activity) {
 
-                    $detail = $activity; // ⭐ gunakan list endpoint langsung
+                    $activityEpoch = strtotime($activity['start_date']);
 
-                    Activity::updateOrCreate(
-                        [
-                            'user_id' => $userId,
-                            'strava_activity_id' => $activity['id']
-                        ],
-                        [
-                            'name' => $detail['name'] ?? null,
-                            'sport_type' => $detail['sport_type'] ?? ($detail['type'] ?? null),
-
-                            'distance' => $detail['distance'] ?? null,
-                            'moving_time' => $detail['moving_time'] ?? null,
-                            'elapsed_time' => $detail['elapsed_time'] ?? null,
-                            'total_elevation_gain' => $detail['total_elevation_gain'] ?? null,
-
-                            'average_speed' => $detail['average_speed'] ?? null,
-                            'max_speed' => $detail['max_speed'] ?? null,
-                            'average_cadence' => $detail['average_cadence'] ?? null,
-
-                            'gear_id' => $detail['gear_id'] ?? null,
-                            'polyline' => $detail['map']['summary_polyline'] ?? null,
-                            'start_date' => $detail['start_date'] ?? null,
-
-                            'raw_data' => $detail,
-                            'last_synced_at' => now()
-                        ]
-                    );
-
-                    $activityEpoch = strtotime($detail['start_date']);
-
-                    if (!$latestActivityEpoch || $activityEpoch > $latestActivityEpoch) {
-                        $latestActivityEpoch = $activityEpoch;
+                    if (!$latestEpoch || $activityEpoch > $latestEpoch) {
+                        $latestEpoch = $activityEpoch;
                     }
+
+                    $existing = Activity::where('user_id', $userId)
+                        ->where('strava_activity_id', $activity['id'])
+                        ->first();
+
+                    $rawHash = md5(json_encode($activity));
+
+                    // ⭐ Jika data sudah ada
+                    if ($existing) {
+
+                        if (($existing->raw_hash ?? null) === $rawHash) {
+                            continue;
+                        }
+
+                        // Update jika berubah
+                        $existing->update([
+                            'name' => $activity['name'] ?? null,
+                            'sport_type' => $activity['sport_type'] ?? ($activity['type'] ?? null),
+
+                            'distance' => $activity['distance'] ?? null,
+                            'moving_time' => $activity['moving_time'] ?? null,
+                            'elapsed_time' => $activity['elapsed_time'] ?? null,
+                            'total_elevation_gain' => $activity['total_elevation_gain'] ?? null,
+
+                            'average_speed' => $activity['average_speed'] ?? null,
+                            'max_speed' => $activity['max_speed'] ?? null,
+                            'average_cadence' => $activity['average_cadence'] ?? null,
+
+                            'gear_id' => $activity['gear_id'] ?? null,
+                            'polyline' => $activity['map']['summary_polyline'] ?? null,
+
+                            'start_date' => $activity['start_date'] ?? null,
+
+                            'raw_data' => $activity,
+                            'raw_hash' => $rawHash,
+
+                            'last_synced_at' => now()
+                        ]);
+
+                        continue;
+                    }
+
+                    // ⭐ Insert jika belum ada
+                    Activity::create([
+                        'user_id' => $userId,
+                        'strava_activity_id' => $activity['id'],
+
+                        'name' => $activity['name'] ?? null,
+                        'sport_type' => $activity['sport_type'] ?? ($activity['type'] ?? null),
+
+                        'distance' => $activity['distance'] ?? null,
+                        'moving_time' => $activity['moving_time'] ?? null,
+                        'elapsed_time' => $activity['elapsed_time'] ?? null,
+                        'total_elevation_gain' => $activity['total_elevation_gain'] ?? null,
+
+                        'average_speed' => $activity['average_speed'] ?? null,
+                        'max_speed' => $activity['max_speed'] ?? null,
+                        'average_cadence' => $activity['average_cadence'] ?? null,
+
+                        'gear_id' => $activity['gear_id'] ?? null,
+                        'polyline' => $activity['map']['summary_polyline'] ?? null,
+
+                        'start_date' => $activity['start_date'] ?? null,
+
+                        'raw_data' => $activity,
+                        'raw_hash' => $rawHash,
+
+                        'last_synced_at' => now()
+                    ]);
                 }
 
                 if (count($activities) < $perPage) {
@@ -111,12 +131,12 @@ class SyncActivityService
                 $page++;
             }
 
-            if ($latestActivityEpoch) {
-                $account->strava_last_activity_epoch = $latestActivityEpoch;
+            if ($latestEpoch) {
+                $account->update([
+                    'strava_last_activity_epoch' => $latestEpoch,
+                    'last_activity_sync_at' => now()
+                ]);
             }
-
-            $account->last_activity_sync_at = now();
-            $account->save();
         } catch (\Exception $e) {
 
             Log::error('Error syncing activities', [
