@@ -34,10 +34,10 @@ class SyncActivityService
         try {
 
             $after = $account->strava_last_activity_epoch;
+            $latestEpoch = $after;
+
             $page = 1;
             $perPage = 20;
-
-            $latestEpoch = $after;
 
             while ($page <= 10) {
 
@@ -46,19 +46,25 @@ class SyncActivityService
                     'page' => $page
                 ];
 
-                // ⭐ IMPORTANT: only send after if exists
                 if ($after) {
                     $params['after'] = $after;
                 }
 
                 $response = Http::withToken($account->access_token)
-                    ->timeout(20)
+                    ->timeout(60)
                     ->get(
                         'https://www.strava.com/api/v3/athlete/activities',
                         $params
                     );
 
                 if (!$response->successful()) {
+
+                    Log::warning('Strava API failed', [
+                        'user_id' => $userId,
+                        'status' => $response->status(),
+                        'body' => $response->body()
+                    ]);
+
                     break;
                 }
 
@@ -70,30 +76,27 @@ class SyncActivityService
 
                 foreach ($activities as $activity) {
 
-                    $result['synced']++;
+                    try {
 
-                    $activityEpoch = strtotime($activity['start_date']);
+                        $result['synced']++;
 
-                    if (!$latestEpoch || $activityEpoch > $latestEpoch) {
-                        $latestEpoch = $activityEpoch;
-                    }
+                        $activityEpoch = strtotime($activity['start_date']);
 
-                    $rawHash = md5(json_encode($activity));
-
-                    $existing = Activity::where('user_id', $userId)
-                        ->where('strava_activity_id', $activity['id'])
-                        ->first();
-
-                    // ========================
-                    // UPDATE EXISTING
-                    // ========================
-                    if ($existing) {
-
-                        if (($existing->raw_hash ?? null) === $rawHash) {
-                            continue;
+                        if (!$latestEpoch || $activityEpoch > $latestEpoch) {
+                            $latestEpoch = $activityEpoch;
                         }
 
-                        $existing->update([
+                        // Use serialize instead of json encode
+                        $rawHash = md5(serialize($activity));
+
+                        $existing = Activity::where('user_id', $userId)
+                            ->where('strava_activity_id', $activity['id'])
+                            ->first();
+
+                        $data = [
+                            'user_id' => $userId,
+                            'strava_activity_id' => $activity['id'],
+
                             'name' => $activity['name'] ?? null,
                             'sport_type' => $activity['sport_type'] ?? ($activity['type'] ?? null),
 
@@ -115,44 +118,33 @@ class SyncActivityService
                             'raw_hash' => $rawHash,
 
                             'last_synced_at' => now()
-                        ]);
+                        ];
 
-                        $result['updated']++;
+                        if ($existing) {
+
+                            if (($existing->raw_hash ?? null) === $rawHash) {
+                                continue;
+                            }
+
+                            $existing->update($data);
+
+                            $result['updated']++;
+                        } else {
+
+                            Activity::create($data);
+
+                            $result['inserted']++;
+                        }
+                    } catch (\Exception $e) {
+
+                        Log::error('Sync activity item failed', [
+                            'user_id' => $userId,
+                            'activity_id' => $activity['id'] ?? null,
+                            'error' => $e->getMessage()
+                        ]);
 
                         continue;
                     }
-
-                    // ========================
-                    // INSERT NEW
-                    // ========================
-                    Activity::create([
-                        'user_id' => $userId,
-                        'strava_activity_id' => $activity['id'],
-
-                        'name' => $activity['name'] ?? null,
-                        'sport_type' => $activity['sport_type'] ?? ($activity['type'] ?? null),
-
-                        'distance' => $activity['distance'] ?? null,
-                        'moving_time' => $activity['moving_time'] ?? null,
-                        'elapsed_time' => $activity['elapsed_time'] ?? null,
-                        'total_elevation_gain' => $activity['total_elevation_gain'] ?? null,
-
-                        'average_speed' => $activity['average_speed'] ?? null,
-                        'max_speed' => $activity['max_speed'] ?? null,
-                        'average_cadence' => $activity['average_cadence'] ?? null,
-
-                        'gear_id' => $activity['gear_id'] ?? null,
-                        'polyline' => $activity['map']['summary_polyline'] ?? null,
-
-                        'start_date' => $activity['start_date'] ?? null,
-
-                        'raw_data' => $activity,
-                        'raw_hash' => $rawHash,
-
-                        'last_synced_at' => now()
-                    ]);
-
-                    $result['inserted']++;
                 }
 
                 if (count($activities) < $perPage) {
@@ -172,7 +164,7 @@ class SyncActivityService
             return $result;
         } catch (\Exception $e) {
 
-            Log::error('Error syncing activities', [
+            Log::error('Sync activity fatal error', [
                 'user_id' => $userId,
                 'error' => $e->getMessage()
             ]);
@@ -185,7 +177,5 @@ class SyncActivityService
                 'updated' => $result['updated'] ?? 0
             ];
         }
-
-        dd($response->status(), $response->json());
     }
 }
