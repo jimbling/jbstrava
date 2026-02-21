@@ -123,11 +123,13 @@
 
             } catch (e) {
                 toastr.error('Terjadi kesalahan saat sync');
-            }
+            } finally {
 
-            btn.disabled = false;
-            spinner.classList.add('hidden');
-            text.innerText = 'Sinkronisasi Sekarang';
+                btn.disabled = false;
+                spinner.classList.add('hidden');
+                text.innerText = 'Sinkronisasi Sekarang';
+
+            }
         }
     </script>
 
