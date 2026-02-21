@@ -9,13 +9,38 @@ use Illuminate\Support\Facades\Log;
 
 class SyncActivityService
 {
-    public function syncLatestActivities($userId)
+    <?php
+
+namespace App\Services\Strava;
+
+use App\Models\Activity;
+use App\Models\StravaAccount;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
+
+class SyncActivityService
+{
+    public function syncLatestActivities($userId): array
     {
         $account = StravaAccount::where('user_id', $userId)->first();
 
         if (!$account || !$account->access_token) {
-            return;
+            return [
+                'status' => 'error',
+                'message' => 'Account or token not found',
+                'synced' => 0,
+                'inserted' => 0,
+                'updated' => 0
+            ];
         }
+
+        $result = [
+            'status' => 'success',
+            'message' => 'sync completed',
+            'synced' => 0,
+            'inserted' => 0,
+            'updated' => 0
+        ];
 
         try {
 
@@ -48,26 +73,29 @@ class SyncActivityService
 
                 foreach ($activities as $activity) {
 
+                    $result['synced']++;
+
                     $activityEpoch = strtotime($activity['start_date']);
 
                     if (!$latestEpoch || $activityEpoch > $latestEpoch) {
                         $latestEpoch = $activityEpoch;
                     }
 
+                    $rawHash = md5(json_encode($activity));
+
                     $existing = Activity::where('user_id', $userId)
                         ->where('strava_activity_id', $activity['id'])
                         ->first();
 
-                    $rawHash = md5(json_encode($activity));
-
-                    // ⭐ Jika data sudah ada
+                    // =========================
+                    // UPDATE EXISTING RECORD
+                    // =========================
                     if ($existing) {
 
                         if (($existing->raw_hash ?? null) === $rawHash) {
                             continue;
                         }
 
-                        // Update jika berubah
                         $existing->update([
                             'name' => $activity['name'] ?? null,
                             'sport_type' => $activity['sport_type'] ?? ($activity['type'] ?? null),
@@ -92,10 +120,14 @@ class SyncActivityService
                             'last_synced_at' => now()
                         ]);
 
+                        $result['updated']++;
+
                         continue;
                     }
 
-                    // ⭐ Insert jika belum ada
+                    // =========================
+                    // INSERT NEW RECORD
+                    // =========================
                     Activity::create([
                         'user_id' => $userId,
                         'strava_activity_id' => $activity['id'],
@@ -122,6 +154,8 @@ class SyncActivityService
 
                         'last_synced_at' => now()
                     ]);
+
+                    $result['inserted']++;
                 }
 
                 if (count($activities) < $perPage) {
@@ -137,12 +171,24 @@ class SyncActivityService
                     'last_activity_sync_at' => now()
                 ]);
             }
+
+            return $result;
+
         } catch (\Exception $e) {
 
             Log::error('Error syncing activities', [
                 'user_id' => $userId,
                 'error' => $e->getMessage()
             ]);
+
+            return [
+                'status' => 'error',
+                'message' => $e->getMessage(),
+                'synced' => $result['synced'] ?? 0,
+                'inserted' => $result['inserted'] ?? 0,
+                'updated' => $result['updated'] ?? 0
+            ];
         }
     }
+}
 }
