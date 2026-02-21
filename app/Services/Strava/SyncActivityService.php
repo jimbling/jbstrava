@@ -185,5 +185,7 @@ class SyncActivityService
                 'updated' => $result['updated'] ?? 0
             ];
         }
+
+        dd($response->status(), $response->json());
     }
 }
