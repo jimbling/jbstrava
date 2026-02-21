@@ -33,9 +33,8 @@ class SyncActivityService
 
         try {
 
-            $after = null;
-            $latestEpoch = $after;
 
+            $latestEpoch = $account->strava_last_activity_epoch;
             $page = 1;
             $perPage = 20;
 
@@ -46,8 +45,8 @@ class SyncActivityService
                     'page' => $page
                 ];
 
-                if ($after) {
-                    $params['after'] = $after;
+                if ($latestEpoch) {
+                    $params['after'] = $latestEpoch;
                 }
 
                 $response = Http::withToken($account->access_token)
