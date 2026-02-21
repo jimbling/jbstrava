@@ -20,7 +20,7 @@ class StravaActivityController extends Controller
 
     public function sync(SyncActivityService $service)
     {
-        dd('sync controller hit');
+
 
         $service->syncLatestActivities(auth()->id());
 
