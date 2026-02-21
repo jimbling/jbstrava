@@ -112,9 +112,9 @@
                 const data = await response.json();
 
                 if (data.status === 'error') {
-                    toastr.error(data.message || 'Sync gagal');
+                    toastr.error(data.message || 'Gagal memulai sinkronisasi');
                 } else {
-                    toastr.success('Sinkronisasi berhasil');
+                    toastr.success('Sinkronisasi sedang diproses di background');
                 }
 
                 setTimeout(() => {
